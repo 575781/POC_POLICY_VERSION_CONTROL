@@ -129,7 +129,7 @@ if version_df.empty:
 versions = version_df["VERSION"].tolist()
 
 # 5️⃣ Old Version dropdown (shows ALL available versions)
-old_version = st.sidebar.selectbox("Old Version", versions)
+old_version = st.sidebar.selectbox("Version", versions)
 
 # 6️⃣ Latest Version auto
 latest_version = versions[-1]
@@ -176,7 +176,7 @@ if st.sidebar.button("Analyze Policy Impact"):
     else:
         st.dataframe(diff_df, use_container_width=True)
 
-    # Generate AI Summary
+    # Generate Summary
     summary_result = session.sql(f"""
         CALL AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.GENERATE_CHANGE_SUMMARY(
             {old_doc_id},
