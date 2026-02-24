@@ -172,7 +172,7 @@ if app_mode == "Search Policy":
 # =================================================
 if app_mode == "Analyze Policy Changes":
 
-    st.title("🔄 Analyze Policy Changes")
+   # st.title("🔄 Analyze Policy Changes")
 
     st.sidebar.header("🧩 Comparison Filters")
 
