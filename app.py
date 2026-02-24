@@ -152,7 +152,7 @@ if app_mode == "Search Policy":
     if search_btn:
 
         search_sql = f"""
-            CALL AI_POC_DB.HEALTH_POLICY_POC.SEARCH_POLICY_CLAUSE(
+            CALL AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.SEARCH_POLICY_CLAUSE(
                 '{search_text}',
                 '{state}',
                 '{lob}',
