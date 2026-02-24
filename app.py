@@ -125,7 +125,7 @@ st.title("📄 Policy & Control Search")
 filters = load_filter_values()
 
 # =================================================
-# SEARCH MODE (UNCHANGED)
+# SEARCH MODE
 # =================================================
 if app_mode == "Search Policy":
 
@@ -188,7 +188,6 @@ if app_mode == "Analyze Policy Changes":
     """).to_pandas()
 
     filenames = file_df["FILE_NAME"].tolist()
-
     selected_file = st.sidebar.selectbox("Policy File Name", filenames)
 
     version_df = session.sql(f"""
@@ -227,7 +226,11 @@ if app_mode == "Analyze Policy Changes":
 
     if analyze_btn:
 
-        # 1️⃣ Generate Diff
+        if not old_doc_id or not new_doc_id:
+            st.error("Invalid document selection.")
+            st.stop()
+
+        # 1️⃣ Generate Clause Diff
         session.sql(f"""
             CALL AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.COMPARE_POLICY_VERSIONS(
                 {old_doc_id},
@@ -235,7 +238,7 @@ if app_mode == "Analyze Policy Changes":
             )
         """).collect()
 
-        # 2️⃣ Generate Summary
+        # 2️⃣ Generate Cortex Summary
         summary_result = session.sql(f"""
             CALL AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.GENERATE_CHANGE_SUMMARY(
                 {old_doc_id},
@@ -245,9 +248,13 @@ if app_mode == "Analyze Policy Changes":
 
         summary_json = summary_result[0][0]
 
-        # -------------------------------------------------
-        # 🔷 CHANGE SUMMARY BLOCK (CLAUSE DIFF)
-        # -------------------------------------------------
+        # Fix JSON parsing issue
+        if isinstance(summary_json, str):
+            summary_json = json.loads(summary_json)
+
+        # =================================================
+        # 🔷 CHANGE SUMMARY (Clause Diff with Colors)
+        # =================================================
         st.markdown("## 🔷 Change Summary")
 
         diff_df = session.sql(f"""
@@ -267,7 +274,7 @@ if app_mode == "Analyze Policy Changes":
 
         for _, row in diff_df.iterrows():
 
-            change_type = row["CHANGE_TYPE"]
+            change_type = row["CHANGE_TYPE"].lower()
             old_clause = row["OLD_CLAUSE"]
             new_clause = row["NEW_CLAUSE"]
 
@@ -279,12 +286,8 @@ if app_mode == "Analyze Policy Changes":
                         f"<div style='background-color:#ffcccc;padding:10px;border-radius:5px'>{old_clause}</div>",
                         unsafe_allow_html=True
                     )
-                with col_new:
-                    st.markdown("")
 
             elif change_type == "added":
-                with col_old:
-                    st.markdown("")
                 with col_new:
                     st.markdown(
                         f"<div style='background-color:#ccffcc;padding:10px;border-radius:5px'>{new_clause}</div>",
@@ -303,18 +306,23 @@ if app_mode == "Analyze Policy Changes":
                         unsafe_allow_html=True
                     )
 
-        # -------------------------------------------------
-        # 🔷 COMPARISON BLOCK (LLM SUMMARY)
-        # -------------------------------------------------
+        # =================================================
+        # 🔷 COMPARISON (LLM Summary + Risks)
+        # =================================================
         st.markdown("## 🔷 Comparison")
 
         st.markdown("### Summary")
-        st.info(summary_json["summary"])
+        st.info(summary_json.get("summary", "No summary generated."))
 
         st.markdown("### ⚠ Risk Highlights")
 
-        for risk in summary_json["risk_highlights"]:
-            st.markdown(f"- {risk}")
+        risks = summary_json.get("risk_highlights", [])
+
+        if risks:
+            for risk in risks:
+                st.markdown(f"- {risk}")
+        else:
+            st.write("No risks identified.")
 
 # -------------------------------------------------
 # Footer
