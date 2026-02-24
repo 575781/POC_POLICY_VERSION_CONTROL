@@ -6,22 +6,75 @@ import json
 # Page Configuration
 # -------------------------------------------------
 st.set_page_config(
-    page_title="Policy Version Comparison",
+    page_title="Policy & Control Search",
     layout="wide"
 )
+
+# -------------------------------------------------
+# Session Initialization
+# -------------------------------------------------
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+if "username" not in st.session_state:
+    st.session_state["username"] = None
+if "app_role" not in st.session_state:
+    st.session_state["app_role"] = None
 
 session = get_active_session()
 
 # -------------------------------------------------
-# Basic Login (Optional – Keep if required)
+# Fetch App Role
 # -------------------------------------------------
-if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = True  # Simplified
+def get_app_role(user_name):
+    df = session.sql("""
+        SELECT APP_ROLE
+        FROM AI_POC_DB.HEALTH_POLICY_POC.APP_USER_ACCESS
+        WHERE (
+            UPPER(USER_NAME) = UPPER(:1)
+            OR UPPER(USER_NAME) = SPLIT(UPPER(:1), '@')[0]
+        )
+        AND IS_ACTIVE = TRUE
+    """, [user_name]).to_pandas()
+    return df.iloc[0]["APP_ROLE"] if not df.empty else None
+
+# -------------------------------------------------
+# LOGIN
+# -------------------------------------------------
+if not st.session_state["authenticated"]:
+
+    st.title("🔐 Policy Search Login")
+
+    with st.form("login_form"):
+        login_user = st.text_input("Username")
+        login_btn = st.form_submit_button("Login")
+
+    if login_btn:
+        role = get_app_role(login_user)
+
+        if not role:
+            st.error("❌ You are not authorized.")
+            st.stop()
+
+        st.session_state["authenticated"] = True
+        st.session_state["username"] = login_user
+        st.session_state["app_role"] = role
+
+    st.stop()
+
+# -------------------------------------------------
+# Sidebar
+# -------------------------------------------------
+st.sidebar.success("Authenticated")
+st.sidebar.write("👤 User:", st.session_state["username"])
+
+if st.sidebar.button("🚪 Logout"):
+    st.session_state.clear()
+    st.experimental_rerun()
 
 st.title("📄 Policy Version Comparison")
 
 # =================================================
-# FILTER SECTION
+# FILTER SECTION (LOB → STATE → POLICY)
 # =================================================
 
 st.sidebar.header("🧩 Comparison Filters")
@@ -36,7 +89,7 @@ lob_df = session.sql("""
 lob_list = lob_df["LOB"].dropna().tolist()
 selected_lob = st.sidebar.selectbox("LOB", lob_list)
 
-# 2️⃣ STATE
+# 2️⃣ State
 state_df = session.sql(f"""
     SELECT DISTINCT STATE
     FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
@@ -47,7 +100,7 @@ state_df = session.sql(f"""
 state_list = state_df["STATE"].dropna().tolist()
 selected_state = st.sidebar.selectbox("State", state_list)
 
-# 3️⃣ POLICY NAME
+# 3️⃣ Policy Name
 policy_df = session.sql(f"""
     SELECT DISTINCT POLICY_NAME
     FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
@@ -59,7 +112,7 @@ policy_df = session.sql(f"""
 policy_list = policy_df["POLICY_NAME"].dropna().tolist()
 selected_policy = st.sidebar.selectbox("Select Policy", policy_list)
 
-# 4️⃣ FETCH VERSIONS
+# 4️⃣ Fetch Versions for selected policy
 version_df = session.sql(f"""
     SELECT VERSION, DOC_ID
     FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
@@ -70,14 +123,18 @@ version_df = session.sql(f"""
 """).to_pandas()
 
 if version_df.empty:
-    st.warning("No versions found for selected policy.")
+    st.warning("No versions available for this policy.")
     st.stop()
 
 versions = version_df["VERSION"].tolist()
 
-old_version = st.sidebar.selectbox("Old Version", versions)
+# 5️⃣ Old Version dropdown (shows ALL available versions)
+old_version = st.sidebar.selectbox("Version", versions)
+
+# 6️⃣ Latest Version auto
 latest_version = versions[-1]
 
+# Extract DOC IDs
 old_doc_id = version_df[version_df["VERSION"] == old_version]["DOC_ID"].values[0]
 new_doc_id = version_df[version_df["VERSION"] == latest_version]["DOC_ID"].values[0]
 
@@ -88,16 +145,14 @@ new_doc_id = version_df[version_df["VERSION"] == latest_version]["DOC_ID"].value
 if st.sidebar.button("Analyze Policy Impact"):
 
     if old_doc_id == new_doc_id:
-        st.warning("Please select a different old version.")
+        st.warning("Old and Latest version are the same. Please select different versions.")
         st.stop()
 
     st.markdown(f"### 📌 Policy: {selected_policy}")
     st.markdown(f"**Old Version:** {old_version} (DOC_ID: {old_doc_id})")
     st.markdown(f"**Latest Version:** {latest_version} (DOC_ID: {new_doc_id})")
 
-    # -------------------------------------------------
-    # Run Comparison Procedure
-    # -------------------------------------------------
+    # Call comparison procedure
     session.sql(f"""
         CALL AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.COMPARE_POLICY_VERSIONS(
             {old_doc_id},
@@ -105,99 +160,23 @@ if st.sidebar.button("Analyze Policy Impact"):
         )
     """).collect()
 
-    # -------------------------------------------------
-    # Fetch Differences
-    # -------------------------------------------------
+    # Fetch diff table
     diff_df = session.sql(f"""
-        SELECT CHANGE_TYPE,
-               OLD_CLAUSE,
-               NEW_CLAUSE
+        SELECT OLD_CLAUSE AS "Old Version",
+               NEW_CLAUSE AS "New Version"
         FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.POLICY_VERSION_DIFFS
         WHERE OLD_DOC_ID = {old_doc_id}
         AND NEW_DOC_ID = {new_doc_id}
     """).to_pandas()
 
-    st.markdown("## 📊 Version Comparison")
+    st.markdown("### 📊 Version Comparison")
 
     if diff_df.empty:
         st.info("No differences found between selected versions.")
     else:
-        for _, row in diff_df.iterrows():
+        st.dataframe(diff_df, use_container_width=True)
 
-            change_type = row["CHANGE_TYPE"].lower()
-            old_clause = row["OLD_CLAUSE"]
-            new_clause = row["NEW_CLAUSE"]
-
-            col1, col2 = st.columns(2)
-
-            # 🟥 REMOVED
-            if change_type == "removed":
-                with col1:
-                    st.markdown(
-                        f"""
-                        <div style="
-                            background-color:#ffcccc;
-                            padding:10px;
-                            border-radius:6px;
-                            margin-bottom:6px;">
-                        {old_clause}
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                with col2:
-                    st.write("")
-
-            # 🟩 ADDED
-            elif change_type == "added":
-                with col1:
-                    st.write("")
-                with col2:
-                    st.markdown(
-                        f"""
-                        <div style="
-                            background-color:#ccffcc;
-                            padding:10px;
-                            border-radius:6px;
-                            margin-bottom:6px;">
-                        {new_clause}
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-
-            # MODIFIED / SAME
-            else:
-                with col1:
-                    st.markdown(
-                        f"""
-                        <div style="
-                            padding:10px;
-                            border-radius:6px;
-                            margin-bottom:6px;
-                            border:1px solid #ddd;">
-                        {old_clause}
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                with col2:
-                    st.markdown(
-                        f"""
-                        <div style="
-                            padding:10px;
-                            border-radius:6px;
-                            margin-bottom:6px;
-                            border:1px solid #ddd;">
-                        {new_clause}
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-
-    # -------------------------------------------------
-    # Generate AI Summary
-    # -------------------------------------------------
+    # Generate Summary
     summary_result = session.sql(f"""
         CALL AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.GENERATE_CHANGE_SUMMARY(
             {old_doc_id},
@@ -210,12 +189,12 @@ if st.sidebar.button("Analyze Policy Impact"):
     if isinstance(summary_json, str):
         summary_json = json.loads(summary_json)
 
-    st.markdown("## 📌 AI Summary")
+    st.markdown("### 📌 Summary")
     st.info(summary_json.get("summary", "No summary generated."))
 
-    st.markdown("## ⚠ Risk Highlights")
-    risks = summary_json.get("risk_highlights", [])
+    st.markdown("### ⚠ Risk Highlights")
 
+    risks = summary_json.get("risk_highlights", [])
     if risks:
         for risk in risks:
             st.markdown(f"- {risk}")
