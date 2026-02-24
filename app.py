@@ -328,5 +328,5 @@ if app_mode == "Analyze Policy Changes":
 # Footer
 # -------------------------------------------------
 st.divider()
-st.caption("Powered by Snowflake Cortex • Streamlit in Snowflake")
+st.caption("Powered by Snowflake Cortex • Streamlit in Snowflake")    FOLLOW THIS CODE AND SEE I CANT SEEE OLD DOC ID AND NEW DOC ID IN OUTPUT 
 
