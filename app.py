@@ -55,7 +55,7 @@ def load_filter_values():
         SELECT DISTINCT
             LOB,
             STATE
-        FROM AI_POC_DB.HEALTH_POLICY_POC.DOCUMENT_METADATA
+        FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
         ORDER BY 1,2
     """).to_pandas()
 
@@ -138,7 +138,7 @@ if app_mode == "Search Policy":
 
     version_df = session.sql(f"""
         SELECT DISTINCT VERSION
-        FROM AI_POC_DB.HEALTH_POLICY_POC.DOCUMENT_METADATA
+        FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
         WHERE LOB = '{lob}'
         AND STATE = '{state}'
         ORDER BY VERSION
@@ -181,7 +181,7 @@ if app_mode == "Analyze Policy Changes":
 
     file_df = session.sql(f"""
         SELECT DISTINCT FILE_NAME
-        FROM AI_POC_DB.HEALTH_POLICY_POC.DOCUMENT_METADATA
+        FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
         WHERE LOB = '{compare_lob}'
         AND STATE = '{compare_state}'
         ORDER BY FILE_NAME
@@ -192,7 +192,7 @@ if app_mode == "Analyze Policy Changes":
 
     version_df = session.sql(f"""
         SELECT DISTINCT VERSION
-        FROM AI_POC_DB.HEALTH_POLICY_POC.DOCUMENT_METADATA
+        FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
         WHERE FILE_NAME = '{selected_file}'
         ORDER BY VERSION
     """).to_pandas()
@@ -210,7 +210,7 @@ if app_mode == "Analyze Policy Changes":
     def get_doc_id(file_name, version):
         df = session.sql(f"""
             SELECT DOC_ID
-            FROM AI_POC_DB.HEALTH_POLICY_POC.DOCUMENT_METADATA
+            FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
             WHERE FILE_NAME = '{file_name}'
             AND VERSION = '{version}'
         """).to_pandas()
