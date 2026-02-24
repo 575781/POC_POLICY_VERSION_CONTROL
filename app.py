@@ -46,7 +46,8 @@ def get_app_role(user_name):
 def load_filter_values():
     df = session.sql("""
         SELECT DISTINCT LOB, STATE
-        FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.POLICY_CHANGE_SUMMARY
+        FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
+
         ORDER BY 1,2
     """).to_pandas()
 
@@ -111,7 +112,8 @@ if app_mode == "Search Policy":
 
     version_df = session.sql(f"""
         SELECT DISTINCT VERSION
-        FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.POLICY_CHANGE_SUMMARY
+        FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
+
         WHERE LOB = '{lob}'
         AND STATE = '{state}'
         ORDER BY VERSION
@@ -146,20 +148,20 @@ if app_mode == "Analyze Policy Changes":
     compare_state = st.sidebar.selectbox("State", filters["STATE"])
 
     file_df = session.sql(f"""
-        SELECT DISTINCT FILE_NAME
+        SELECT DISTINCT POLICY_NAME
         FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
         WHERE LOB = '{compare_lob}'
         AND STATE = '{compare_state}'
-        ORDER BY FILE_NAME
+        ORDER BY POLICY_NAME
     """).to_pandas()
 
-    filenames = file_df["FILE_NAME"].tolist()
+    filenames = file_df["POLICY_NAME"].tolist()
     selected_file = st.sidebar.selectbox("Policy File Name", filenames)
 
     version_df = session.sql(f"""
         SELECT DISTINCT VERSION
         FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.POLICY_CHANGE_SUMMARY
-        WHERE FILE_NAME = '{selected_file}'
+        WHERE POLICY_NAME = '{selected_file}'
         ORDER BY VERSION
     """).to_pandas()
 
@@ -171,8 +173,8 @@ if app_mode == "Analyze Policy Changes":
     def get_doc_id(file_name, version):
         df = session.sql(f"""
             SELECT DOC_ID
-            FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.POLICY_CHANGE_SUMMARY
-            WHERE FILE_NAME = '{file_name}'
+            FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
+            WHERE POLICY_NAME = '{file_name}'
             AND VERSION = '{version}'
         """).to_pandas()
         return df.iloc[0]["DOC_ID"] if not df.empty else None
