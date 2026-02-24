@@ -189,7 +189,7 @@ if st.sidebar.button("Analyze Policy Impact"):
     if isinstance(summary_json, str):
         summary_json = json.loads(summary_json)
 
-    st.markdown("### 📌 AI Summary")
+    st.markdown("### 📌 Summary")
     st.info(summary_json.get("summary", "No summary generated."))
 
     st.markdown("### ⚠ Risk Highlights")
