@@ -86,9 +86,10 @@ lob_df = session.sql("""
     ORDER BY LOB
 """).to_pandas()
 
-selected_lob = st.sidebar.selectbox("LOB", lob_df["LOB"].dropna().tolist())
+lob_list = lob_df["LOB"].dropna().tolist()
+selected_lob = st.sidebar.selectbox("LOB", lob_list)
 
-# 2️⃣ STATE
+# 2️⃣ State
 state_df = session.sql(f"""
     SELECT DISTINCT STATE
     FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
@@ -96,9 +97,10 @@ state_df = session.sql(f"""
     ORDER BY STATE
 """).to_pandas()
 
-selected_state = st.sidebar.selectbox("State", state_df["STATE"].dropna().tolist())
+state_list = state_df["STATE"].dropna().tolist()
+selected_state = st.sidebar.selectbox("State", state_list)
 
-# 3️⃣ POLICY
+# 3️⃣ Policy Name
 policy_df = session.sql(f"""
     SELECT DISTINCT POLICY_NAME
     FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
@@ -107,12 +109,10 @@ policy_df = session.sql(f"""
     ORDER BY POLICY_NAME
 """).to_pandas()
 
-selected_policy = st.sidebar.selectbox("Select Policy", policy_df["POLICY_NAME"].dropna().tolist())
+policy_list = policy_df["POLICY_NAME"].dropna().tolist()
+selected_policy = st.sidebar.selectbox("Select Policy", policy_list)
 
-# =================================================
-# FETCH VERSIONS
-# =================================================
-
+# 4️⃣ Fetch Versions for selected policy
 version_df = session.sql(f"""
     SELECT VERSION, DOC_ID
     FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
@@ -122,27 +122,21 @@ version_df = session.sql(f"""
     ORDER BY VERSION
 """).to_pandas()
 
-if len(version_df) < 2:
-    st.warning("At least two versions required for comparison.")
+if version_df.empty:
+    st.warning("No versions available for this policy.")
     st.stop()
 
-# Sort properly
-version_df = version_df.sort_values("VERSION")
+versions = version_df["VERSION"].tolist()
 
-# Get latest and one prior
-latest_row = version_df.iloc[-1]
-previous_row = version_df.iloc[-2]
+# 5️⃣ Old Version dropdown (shows ALL available versions)
+old_version = st.sidebar.selectbox("Version", versions)
 
-latest_version = latest_row["VERSION"]
-previous_version = previous_row["VERSION"]
+# 6️⃣ Latest Version auto
+latest_version = versions[-1]
 
-new_doc_id = latest_row["DOC_ID"]
-old_doc_id = previous_row["DOC_ID"]
-
-# Show versions in sidebar (informational only)
-st.sidebar.markdown("### 🔎 Auto Comparison")
-st.sidebar.write(f"Previous Version: {previous_version}")
-st.sidebar.write(f"Latest Version: {latest_version}")
+# Extract DOC IDs
+old_doc_id = version_df[version_df["VERSION"] == old_version]["DOC_ID"].values[0]
+new_doc_id = version_df[version_df["VERSION"] == latest_version]["DOC_ID"].values[0]
 
 # =================================================
 # ANALYZE BUTTON
@@ -150,8 +144,12 @@ st.sidebar.write(f"Latest Version: {latest_version}")
 
 if st.sidebar.button("Analyze Policy Impact"):
 
+    if old_doc_id == new_doc_id:
+        st.warning("Old and Latest version are the same. Please select different versions.")
+        st.stop()
+
     st.markdown(f"### 📌 Policy: {selected_policy}")
-    st.markdown(f"**Previous Version:** {previous_version} (DOC_ID: {old_doc_id})")
+    st.markdown(f"**Old Version:** {old_version} (DOC_ID: {old_doc_id})")
     st.markdown(f"**Latest Version:** {latest_version} (DOC_ID: {new_doc_id})")
 
     # Call comparison procedure
@@ -164,8 +162,8 @@ if st.sidebar.button("Analyze Policy Impact"):
 
     # Fetch diff table
     diff_df = session.sql(f"""
-        SELECT OLD_CLAUSE AS "Previous Version",
-               NEW_CLAUSE AS "Latest Version"
+        SELECT OLD_CLAUSE AS "Old Version",
+               NEW_CLAUSE AS "New Version"
         FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.POLICY_VERSION_DIFFS
         WHERE OLD_DOC_ID = {old_doc_id}
         AND NEW_DOC_ID = {new_doc_id}
