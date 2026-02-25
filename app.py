@@ -72,9 +72,8 @@ if st.sidebar.button("🚪 Logout"):
     st.experimental_rerun()
 
 # =================================================
-# MODE SELECTION (Restored Block)
+# MODE SELECTION
 # =================================================
-
 st.sidebar.header("📂 Menu")
 
 app_mode = st.sidebar.radio(
@@ -82,13 +81,12 @@ app_mode = st.sidebar.radio(
     ["Search Policy", "Analyze Policy Changes"]
 )
 
-st.title("📄 Policy & Control Search")
-
 # =================================================
-# SEARCH MODE
+# SEARCH POLICY MODE
 # =================================================
-
 if app_mode == "Search Policy":
+
+    st.title("📄 Policy & Control Search")
 
     st.sidebar.header("🔎 Search Filters")
 
@@ -153,14 +151,13 @@ if app_mode == "Search Policy":
 # =================================================
 # ANALYZE POLICY CHANGES MODE
 # =================================================
-
 if app_mode == "Analyze Policy Changes":
 
     st.title("📄 Policy Version Comparison")
 
     st.sidebar.header("🧩 Comparison Filters")
 
-    # 1️⃣ LOB
+    # LOB
     lob_df = session.sql("""
         SELECT DISTINCT LOB
         FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
@@ -169,7 +166,7 @@ if app_mode == "Analyze Policy Changes":
 
     selected_lob = st.sidebar.selectbox("LOB", lob_df["LOB"].dropna().tolist())
 
-    # 2️⃣ STATE
+    # STATE
     state_df = session.sql(f"""
         SELECT DISTINCT STATE
         FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
@@ -179,7 +176,7 @@ if app_mode == "Analyze Policy Changes":
 
     selected_state = st.sidebar.selectbox("State", state_df["STATE"].dropna().tolist())
 
-    # 3️⃣ POLICY
+    # POLICY
     policy_df = session.sql(f"""
         SELECT DISTINCT POLICY_NAME
         FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
@@ -190,7 +187,7 @@ if app_mode == "Analyze Policy Changes":
 
     selected_policy = st.sidebar.selectbox("Select Policy", policy_df["POLICY_NAME"].dropna().tolist())
 
-    # 4️⃣ FETCH VERSIONS
+    # Fetch Versions
     version_df = session.sql(f"""
         SELECT VERSION, DOC_ID
         FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
@@ -219,17 +216,12 @@ if app_mode == "Analyze Policy Changes":
     st.sidebar.write(f"Previous Version: {previous_version}")
     st.sidebar.write(f"Latest Version: {latest_version}")
 
-    # =================================================
-    # ANALYZE BUTTON
-    # =================================================
-
     if st.sidebar.button("Analyze Policy Impact"):
 
         st.markdown(f"### 📌 Policy: {selected_policy}")
         st.markdown(f"**Previous Version:** {previous_version} (DOC_ID: {old_doc_id})")
         st.markdown(f"**Latest Version:** {latest_version} (DOC_ID: {new_doc_id})")
 
-        # Call comparison procedure
         session.sql(f"""
             CALL AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.COMPARE_POLICY_VERSIONS(
                 {old_doc_id},
@@ -252,7 +244,6 @@ if app_mode == "Analyze Policy Changes":
         else:
             st.dataframe(diff_df, use_container_width=True)
 
-        # Generate Summary
         summary_result = session.sql(f"""
             CALL AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.GENERATE_CHANGE_SUMMARY(
                 {old_doc_id},
