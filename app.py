@@ -1,7 +1,7 @@
 import streamlit as st
 from snowflake.snowpark.context import get_active_session
 import json
-import html   # ✅ NEW (for escaping)
+import pandas as pd
 
 # -------------------------------------------------
 # Page Configuration
@@ -24,78 +24,32 @@ if "app_role" not in st.session_state:
 session = get_active_session()
 
 # -------------------------------------------------
-# ✅ FIXED DIFF FUNCTION
+# ✅ DIFF STYLING FUNCTION (FINAL)
 # -------------------------------------------------
-def generate_diff_html(df):
+def style_diff(df):
 
-    html_content = """
-    <style>
-    .diff-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-family: Arial, sans-serif;
-    }
-    .diff-table th {
-        background-color: #1f2937;
-        color: white;
-        padding: 10px;
-        text-align: left;
-    }
-    .diff-table td {
-        padding: 10px;
-        border-bottom: 1px solid #ddd;
-        vertical-align: top;
-        white-space: pre-wrap;
-    }
-    .added {
-        background-color: #d1fae5;
-    }
-    .removed {
-        background-color: #fee2e2;
-    }
-    .modified {
-        background-color: #fef9c3;
-    }
-    </style>
-
-    <table class="diff-table">
-    <tr>
-        <th>Previous Version</th>
-        <th>Latest Version</th>
-        <th>Change Type</th>
-    </tr>
-    """
-
-    for _, row in df.iterrows():
-
-        old_raw = row["Previous Version"]
-        new_raw = row["Latest Version"]
-
-        # ✅ CRITICAL FIX: Escape HTML
-        old = html.escape(str(old_raw)) if old_raw else ""
-        new = html.escape(str(new_raw)) if new_raw else ""
+    def get_change_type(row):
+        old = str(row["Previous Version"]) if row["Previous Version"] else ""
+        new = str(row["Latest Version"]) if row["Latest Version"] else ""
 
         if old and not new:
-            row_class = "removed"
-            change = "Removed"
+            return "Removed"
         elif new and not old:
-            row_class = "added"
-            change = "Added"
+            return "Added"
         else:
-            row_class = "modified"
-            change = "Modified"
+            return "Modified"
 
-        html_content += f"""
-        <tr class="{row_class}">
-            <td>{old}</td>
-            <td>{new}</td>
-            <td><b>{change}</b></td>
-        </tr>
-        """
+    df["Change Type"] = df.apply(get_change_type, axis=1)
 
-    html_content += "</table>"
+    def highlight_row(row):
+        if row["Change Type"] == "Added":
+            return ["background-color: #d1fae5"] * len(row)
+        elif row["Change Type"] == "Removed":
+            return ["background-color: #fee2e2"] * len(row)
+        else:
+            return ["background-color: #fef9c3"] * len(row)
 
-    return html_content
+    return df.style.apply(highlight_row, axis=1)
 
 # -------------------------------------------------
 # Fetch App Role
@@ -279,9 +233,8 @@ if app_mode == "Analyze Policy Changes":
         latest_version = latest_row["VERSION"]
         previous_version = previous_row["VERSION"]
 
-        # ✅ FIX: numpy → python int
-        old_doc_id = int(previous_row["DOC_ID"]) if previous_row["DOC_ID"] is not None else None
-        new_doc_id = int(latest_row["DOC_ID"]) if latest_row["DOC_ID"] is not None else None
+        old_doc_id = int(previous_row["DOC_ID"])
+        new_doc_id = int(latest_row["DOC_ID"])
 
         st.sidebar.markdown("### 🔎 Auto Comparison")
         st.sidebar.write(f"Previous Version: {previous_version}")
@@ -309,11 +262,8 @@ if app_mode == "Analyze Policy Changes":
             if diff_df.empty:
                 st.info("No differences found between selected versions.")
             else:
-                st.success(f"{len(diff_df)} changes identified")
-
-                # ✅ FINAL DIFF VIEW
-                styled_html = generate_diff_html(diff_df)
-                st.markdown(styled_html, unsafe_allow_html=True)
+                styled_df = style_diff(diff_df)
+                st.dataframe(styled_df, use_container_width=True)
 
             summary_result = session.sql("""
                 CALL AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.GENERATE_CHANGE_SUMMARY(:1, :2)
