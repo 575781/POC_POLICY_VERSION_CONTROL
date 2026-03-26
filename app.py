@@ -204,8 +204,9 @@ if app_mode == "Analyze Policy Changes":
         latest_version = latest_row["VERSION"]
         previous_version = previous_row["VERSION"]
 
-        new_doc_id = latest_row["DOC_ID"]
-        old_doc_id = previous_row["DOC_ID"]
+        # ✅ FIX: convert numpy int to Python int
+        old_doc_id = int(previous_row["DOC_ID"]) if previous_row["DOC_ID"] is not None else None
+        new_doc_id = int(latest_row["DOC_ID"]) if latest_row["DOC_ID"] is not None else None
 
         st.sidebar.markdown("### 🔎 Auto Comparison")
         st.sidebar.write(f"Previous Version: {previous_version}")
@@ -234,7 +235,7 @@ if app_mode == "Analyze Policy Changes":
                 st.info("No differences found between selected versions.")
             else:
                 st.success(f"{len(diff_df)} changes identified")
-                st.table(diff_df)   # ✅ SCROLLBAR REMOVED HERE
+                st.table(diff_df)   # ✅ NO SCROLLBAR
 
             summary_result = session.sql("""
                 CALL AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.GENERATE_CHANGE_SUMMARY(:1, :2)
