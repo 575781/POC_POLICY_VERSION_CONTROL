@@ -1,6 +1,7 @@
 import streamlit as st
 from snowflake.snowpark.context import get_active_session
 import json
+import html   # ✅ NEW (for escaping)
 
 # -------------------------------------------------
 # Page Configuration
@@ -23,10 +24,11 @@ if "app_role" not in st.session_state:
 session = get_active_session()
 
 # -------------------------------------------------
-# DIFF HTML FUNCTION (NEW)
+# ✅ FIXED DIFF FUNCTION
 # -------------------------------------------------
 def generate_diff_html(df):
-    html = """
+
+    html_content = """
     <style>
     .diff-table {
         width: 100%;
@@ -43,6 +45,7 @@ def generate_diff_html(df):
         padding: 10px;
         border-bottom: 1px solid #ddd;
         vertical-align: top;
+        white-space: pre-wrap;
     }
     .added {
         background-color: #d1fae5;
@@ -64,8 +67,13 @@ def generate_diff_html(df):
     """
 
     for _, row in df.iterrows():
-        old = str(row["Previous Version"]) if row["Previous Version"] else ""
-        new = str(row["Latest Version"]) if row["Latest Version"] else ""
+
+        old_raw = row["Previous Version"]
+        new_raw = row["Latest Version"]
+
+        # ✅ CRITICAL FIX: Escape HTML
+        old = html.escape(str(old_raw)) if old_raw else ""
+        new = html.escape(str(new_raw)) if new_raw else ""
 
         if old and not new:
             row_class = "removed"
@@ -77,7 +85,7 @@ def generate_diff_html(df):
             row_class = "modified"
             change = "Modified"
 
-        html += f"""
+        html_content += f"""
         <tr class="{row_class}">
             <td>{old}</td>
             <td>{new}</td>
@@ -85,8 +93,9 @@ def generate_diff_html(df):
         </tr>
         """
 
-    html += "</table>"
-    return html
+    html_content += "</table>"
+
+    return html_content
 
 # -------------------------------------------------
 # Fetch App Role
@@ -270,6 +279,7 @@ if app_mode == "Analyze Policy Changes":
         latest_version = latest_row["VERSION"]
         previous_version = previous_row["VERSION"]
 
+        # ✅ FIX: numpy → python int
         old_doc_id = int(previous_row["DOC_ID"]) if previous_row["DOC_ID"] is not None else None
         new_doc_id = int(latest_row["DOC_ID"]) if latest_row["DOC_ID"] is not None else None
 
@@ -301,7 +311,7 @@ if app_mode == "Analyze Policy Changes":
             else:
                 st.success(f"{len(diff_df)} changes identified")
 
-                # ✅ NEW DIFF VIEW
+                # ✅ FINAL DIFF VIEW
                 styled_html = generate_diff_html(diff_df)
                 st.markdown(styled_html, unsafe_allow_html=True)
 
