@@ -237,8 +237,9 @@ if app_mode == "Analyze Policy Changes":
         new_doc_id = int(latest_row["DOC_ID"])
 
         st.sidebar.markdown("### 🔎 Auto Comparison")
-        st.sidebar.write(f"Previous Version: {previous_version}")
         st.sidebar.write(f"Latest Version: {latest_version}")
+        st.sidebar.write(f"Previous Version: {previous_version}")
+       
 
         if st.sidebar.button("Analyze Policy Impact"):
 
