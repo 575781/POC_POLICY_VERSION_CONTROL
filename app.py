@@ -24,7 +24,7 @@ if "app_role" not in st.session_state:
 session = get_active_session()
 
 # -------------------------------------------------
-# ✅ DIFF STYLING FUNCTION (FINAL)
+# DIFF STYLING FUNCTION
 # -------------------------------------------------
 def style_diff(df):
 
@@ -263,7 +263,10 @@ if app_mode == "Analyze Policy Changes":
                 st.info("No differences found between selected versions.")
             else:
                 styled_df = style_diff(diff_df)
-                st.dataframe(styled_df, use_container_width=True)
+
+                # ✅ ONLY CHANGE: Remove scroll panel
+                html_table = styled_df.to_html()
+                st.markdown(html_table, unsafe_allow_html=True)
 
             summary_result = session.sql("""
                 CALL AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.GENERATE_CHANGE_SUMMARY(:1, :2)
