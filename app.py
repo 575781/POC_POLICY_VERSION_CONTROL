@@ -7,14 +7,17 @@ import logging
 # -------------------------------------------------
 # CONFIG + LOGGING
 # -------------------------------------------------
+# Centralized DB config → easier to maintain/change later
 DB = "AI_POC_DB"
 SCHEMA = "HEALTH_POLICY_POC_CHANGE_SUMMARY"
 
+# Logging helps track execution in production (debugging + monitoring)
 logging.basicConfig(level=logging.INFO)
 
 # -------------------------------------------------
 # Page Configuration
 # -------------------------------------------------
+# Wide layout improves usability for comparison tables
 st.set_page_config(
     page_title="Policy & Control Search",
     layout="wide"
@@ -23,6 +26,7 @@ st.set_page_config(
 # -------------------------------------------------
 # Session Initialization
 # -------------------------------------------------
+# Initialize session variables only once (avoids crashes)
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 if "username" not in st.session_state:
@@ -30,11 +34,14 @@ if "username" not in st.session_state:
 if "app_role" not in st.session_state:
     st.session_state["app_role"] = None
 
+# Create Snowflake session (main DB connection)
 session = get_active_session()
 
 # -------------------------------------------------
 # CACHE HELPERS (Performance Boost)
 # -------------------------------------------------
+# Cache ensures DB is not hit repeatedly → faster UI
+
 @st.cache_data
 def get_lob_data():
     return session.sql(f"""
@@ -71,10 +78,12 @@ def get_version_data(policy, lob, state):
     """, [policy, lob, state]).to_pandas()
 
 # -------------------------------------------------
-# DIFF STYLING FUNCTION 
+# DIFF STYLING FUNCTION
 # -------------------------------------------------
+# Adds color highlighting to comparison output
 def style_diff(df):
 
+    # Identify type of change
     def get_change_type(row):
         old = str(row["Previous Version"]) if row["Previous Version"] else ""
         new = str(row["Latest Version"]) if row["Latest Version"] else ""
@@ -88,19 +97,21 @@ def style_diff(df):
 
     df["Change Type"] = df.apply(get_change_type, axis=1)
 
+    # Apply colors row-wise
     def highlight_row(row):
         if row["Change Type"] == "Added":
-            return ["background-color: #d1fae5"] * len(row)
+            return ["background-color: #d1fae5"] * len(row)  # Green
         elif row["Change Type"] == "Removed":
-            return ["background-color: #fee2e2"] * len(row)
+            return ["background-color: #fee2e2"] * len(row)  # Red
         else:
-            return ["background-color: #fef9c3"] * len(row)
+            return ["background-color: #fef9c3"] * len(row)  # Yellow
 
     return df.style.apply(highlight_row, axis=1)
 
 # -------------------------------------------------
-# Fetch App Role 
+# Fetch App Role
 # -------------------------------------------------
+# Used for authentication control
 def get_app_role(user_name):
     df = session.sql("""
         SELECT APP_ROLE
@@ -114,8 +125,9 @@ def get_app_role(user_name):
     return df.iloc[0]["APP_ROLE"] if not df.empty else None
 
 # -------------------------------------------------
-# LOGIN 
+# LOGIN
 # -------------------------------------------------
+# Prevents unauthorized access
 if not st.session_state["authenticated"]:
 
     st.title("🔐 Policy Search Login")
@@ -131,6 +143,7 @@ if not st.session_state["authenticated"]:
             st.error("❌ You are not authorized.")
             st.stop()
 
+        # Store user session
         st.session_state["authenticated"] = True
         st.session_state["username"] = login_user
         st.session_state["app_role"] = role
@@ -143,10 +156,12 @@ if not st.session_state["authenticated"]:
 st.sidebar.success("Authenticated")
 st.sidebar.write("👤 User:", st.session_state["username"])
 
+# Logout clears session completely
 if st.sidebar.button("🚪 Logout"):
     st.session_state.clear()
     st.rerun()
 
+# App navigation
 st.sidebar.header("📂 Menu")
 
 app_mode = st.sidebar.radio(
@@ -165,6 +180,7 @@ if app_mode == "Search Policy":
         st.header("🔎 Search Filters")
 
         try:
+            # Cascading filters (LOB → STATE → POLICY)
             lob_df = get_lob_data()
             selected_lob = st.selectbox("LOB", lob_df["LOB"].dropna().tolist())
 
@@ -174,6 +190,7 @@ if app_mode == "Search Policy":
             policy_df = get_policy_data(selected_lob, selected_state)
             selected_policy = st.selectbox("Policy", policy_df["POLICY_NAME"].dropna().tolist())
 
+            # Version selection
             version_df = session.sql(f"""
                 SELECT DISTINCT VERSION
                 FROM {DB}.{SCHEMA}.DOCUMENT_METADATA
@@ -185,8 +202,10 @@ if app_mode == "Search Policy":
 
             search_text = st.text_input("Search Clause")
 
+            # Search action
             if st.button("🔍 Search"):
 
+                # Spinner improves UX
                 with st.spinner("Searching..."):
 
                     result_df = session.sql(f"""
@@ -214,6 +233,7 @@ if app_mode == "Analyze Policy Changes":
         st.header("🧩 Comparison Filters")
 
         try:
+            # Filter hierarchy
             lob_df = get_lob_data()
             selected_lob = st.selectbox("LOB", lob_df["LOB"].dropna().tolist())
 
@@ -231,10 +251,12 @@ if app_mode == "Analyze Policy Changes":
     try:
         version_df = get_version_data(selected_policy, selected_lob, selected_state)
 
+        # Ensure at least 2 versions exist
         if len(version_df) < 2:
             st.warning("At least two versions required for comparison.")
             st.stop()
 
+        # Sort versions → identify latest and previous
         version_df = version_df.sort_values("VERSION")
 
         latest_row = version_df.iloc[-1]
@@ -246,10 +268,12 @@ if app_mode == "Analyze Policy Changes":
         old_doc_id = int(previous_row["DOC_ID"])
         new_doc_id = int(latest_row["DOC_ID"])
 
+        # Show auto-selected versions
         st.sidebar.markdown("### 🔎 Auto Comparison")
         st.sidebar.write(f"Latest Version: {latest_version}")
         st.sidebar.write(f"Previous Version: {previous_version}")
 
+        # Main action
         if st.sidebar.button("Analyze Policy Impact"):
 
             logging.info(f"Comparing {old_doc_id} vs {new_doc_id}")
@@ -258,17 +282,21 @@ if app_mode == "Analyze Policy Changes":
             st.markdown(f"**Latest Version:** {latest_version} (DOC_ID: {new_doc_id})")
             st.markdown(f"**Previous Version:** {previous_version} (DOC_ID: {old_doc_id})")
 
-            # Avoid duplicate execution
+            # -------------------------------------------------
+            # Avoid duplicate execution (IMPORTANT FOR PERFORMANCE)
+            # -------------------------------------------------
             count = session.sql(f"""
                 SELECT COUNT(*) FROM {DB}.{SCHEMA}.POLICY_VERSION_DIFFS
                 WHERE OLD_DOC_ID = :1 AND NEW_DOC_ID = :2
             """, [old_doc_id, new_doc_id]).collect()[0][0]
 
+            # Only run heavy procedure if data not already present
             if count == 0:
                 session.sql(f"""
                     CALL {DB}.{SCHEMA}.COMPARE_POLICY_VERSIONS(:1, :2)
                 """, [old_doc_id, new_doc_id]).collect()
 
+            # Fetch comparison result
             diff_df = session.sql(f"""
                 SELECT OLD_CLAUSE AS "Previous Version",
                        NEW_CLAUSE AS "Latest Version"
@@ -284,12 +312,14 @@ if app_mode == "Analyze Policy Changes":
                 html_table = style_diff(diff_df).to_html()
                 st.markdown(html_table, unsafe_allow_html=True)
 
+            # Summary generation (LLM-based)
             summary_result = session.sql(f"""
                 CALL {DB}.{SCHEMA}.GENERATE_CHANGE_SUMMARY(:1, :2)
             """, [old_doc_id, new_doc_id]).collect()
 
             summary_json = summary_result[0][0]
 
+            # Ensure valid JSON format
             if isinstance(summary_json, str):
                 summary_json = json.loads(summary_json)
 
