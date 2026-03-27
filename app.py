@@ -244,8 +244,9 @@ if app_mode == "Analyze Policy Changes":
         if st.sidebar.button("Analyze Policy Impact"):
 
             st.markdown(f"### 📌 Policy: {selected_policy}")
-            st.markdown(f"**Previous Version:** {previous_version} (DOC_ID: {old_doc_id})")
             st.markdown(f"**Latest Version:** {latest_version} (DOC_ID: {new_doc_id})")
+            st.markdown(f"**Previous Version:** {previous_version} (DOC_ID: {old_doc_id})")
+            
 
             session.sql("""
                 CALL AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.COMPARE_POLICY_VERSIONS(:1, :2)
