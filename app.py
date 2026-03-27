@@ -1,301 +1,248 @@
 import streamlit as st
 from snowflake.snowpark.context import get_active_session
 import json
-import pandas as pd
+import logging
+
+# -------------------------------------------------
+# CONFIG
+# -------------------------------------------------
+DB = "AI_POC_DB"
+SCHEMA = "HEALTH_POLICY_POC_CHANGE_SUMMARY"
+
+# -------------------------------------------------
+# LOGGING
+# -------------------------------------------------
+logging.basicConfig(level=logging.INFO)
 
 # -------------------------------------------------
 # Page Configuration
 # -------------------------------------------------
 st.set_page_config(
-    page_title="Policy & Control Search",
+    page_title="Policy Intelligence Platform",
     layout="wide"
 )
 
 # -------------------------------------------------
-# Session Initialization
+# SESSION INIT
 # -------------------------------------------------
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 if "username" not in st.session_state:
     st.session_state["username"] = None
-if "app_role" not in st.session_state:
-    st.session_state["app_role"] = None
 
 session = get_active_session()
 
 # -------------------------------------------------
-# DIFF STYLING FUNCTION
+# SAFE QUERY HELPERS (CACHED)
 # -------------------------------------------------
-def style_diff(df):
+@st.cache_data
+def get_lobs():
+    return session.sql(f"""
+        SELECT DISTINCT LOB 
+        FROM {DB}.{SCHEMA}.DOCUMENT_METADATA
+        ORDER BY LOB
+    """).to_pandas()
 
-    def get_change_type(row):
-        old = str(row["Previous Version"]) if row["Previous Version"] else ""
-        new = str(row["Latest Version"]) if row["Latest Version"] else ""
+@st.cache_data
+def get_states(lob):
+    return session.sql(f"""
+        SELECT DISTINCT STATE 
+        FROM {DB}.{SCHEMA}.DOCUMENT_METADATA
+        WHERE LOB = :1
+        ORDER BY STATE
+    """, [lob]).to_pandas()
 
-        if old and not new:
-            return "Removed"
-        elif new and not old:
-            return "Added"
-        else:
-            return "Modified"
+@st.cache_data
+def get_policies(lob, state):
+    return session.sql(f"""
+        SELECT DISTINCT POLICY_NAME 
+        FROM {DB}.{SCHEMA}.DOCUMENT_METADATA
+        WHERE LOB = :1 AND STATE = :2
+        ORDER BY POLICY_NAME
+    """, [lob, state]).to_pandas()
 
-    df["Change Type"] = df.apply(get_change_type, axis=1)
-
-    def highlight_row(row):
-        if row["Change Type"] == "Added":
-            return ["background-color: #d1fae5"] * len(row)
-        elif row["Change Type"] == "Removed":
-            return ["background-color: #fee2e2"] * len(row)
-        else:
-            return ["background-color: #fef9c3"] * len(row)
-
-    return df.style.apply(highlight_row, axis=1)
-
-# -------------------------------------------------
-# Fetch App Role
-# -------------------------------------------------
-def get_app_role(user_name):
-    df = session.sql("""
-        SELECT APP_ROLE
-        FROM AI_POC_DB.HEALTH_POLICY_POC.APP_USER_ACCESS
-        WHERE (
-            UPPER(USER_NAME) = UPPER(:1)
-            OR UPPER(USER_NAME) = SPLIT(UPPER(:1), '@')[0]
-        )
-        AND IS_ACTIVE = TRUE
-    """, [user_name]).to_pandas()
-    return df.iloc[0]["APP_ROLE"] if not df.empty else None
+@st.cache_data
+def get_versions(lob, state, policy):
+    return session.sql(f"""
+        SELECT VERSION, DOC_ID
+        FROM {DB}.{SCHEMA}.DOCUMENT_METADATA
+        WHERE LOB = :1 AND STATE = :2 AND POLICY_NAME = :3
+        ORDER BY VERSION
+    """, [lob, state, policy]).to_pandas()
 
 # -------------------------------------------------
 # LOGIN
 # -------------------------------------------------
-if not st.session_state["authenticated"]:
+def login():
+    st.title("🔐 Login")
 
-    st.title("🔐 Policy Search Login")
+    with st.form("login"):
+        user = st.text_input("Username")
+        submit = st.form_submit_button("Login")
 
-    with st.form("login_form"):
-        login_user = st.text_input("Username")
-        login_btn = st.form_submit_button("Login")
-
-    if login_btn:
-        role = get_app_role(login_user)
-
-        if not role:
-            st.error("❌ You are not authorized.")
-            st.stop()
+    if submit:
+        if not user:
+            st.warning("Enter username")
+            return False
 
         st.session_state["authenticated"] = True
-        st.session_state["username"] = login_user
-        st.session_state["app_role"] = role
+        st.session_state["username"] = user
+        return True
 
-    st.stop()
+    return False
+
+if not st.session_state["authenticated"]:
+    if not login():
+        st.stop()
 
 # -------------------------------------------------
-# Sidebar
+# SIDEBAR
 # -------------------------------------------------
-st.sidebar.success("Authenticated")
-st.sidebar.write("👤 User:", st.session_state["username"])
+st.sidebar.success(f"👤 {st.session_state['username']}")
 
-if st.sidebar.button("🚪 Logout"):
+if st.sidebar.button("Logout"):
     st.session_state.clear()
-    st.rerun()
-
-st.sidebar.header("📂 Menu")
+    st.experimental_rerun()
 
 app_mode = st.sidebar.radio(
-    "Select Option",
+    "Menu",
     ["Search Policy", "Analyze Policy Changes"]
 )
 
 # =================================================
-# SEARCH POLICY MODE
+# SEARCH MODE
 # =================================================
 if app_mode == "Search Policy":
 
-    st.title("📄 Policy & Control Search")
+    st.title("📄 Policy Search")
 
-    with st.sidebar:
-        st.header("🔎 Search Filters")
+    try:
+        lob = st.sidebar.selectbox("LOB", get_lobs()["LOB"].dropna())
 
-        try:
-            lob_df = session.sql("""
-                SELECT DISTINCT LOB
-                FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
-                ORDER BY LOB
-            """).to_pandas()
+        state = st.sidebar.selectbox(
+            "State", get_states(lob)["STATE"].dropna()
+        )
 
-            selected_lob = st.selectbox("LOB", lob_df["LOB"].dropna().tolist())
+        policy = st.sidebar.selectbox(
+            "Policy", get_policies(lob, state)["POLICY_NAME"].dropna()
+        )
 
-            state_df = session.sql("""
-                SELECT DISTINCT STATE
-                FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
-                WHERE LOB = :1
-                ORDER BY STATE
-            """, [selected_lob]).to_pandas()
+        version_df = get_versions(lob, state, policy)
+        version = st.sidebar.selectbox("Version", version_df["VERSION"])
 
-            selected_state = st.selectbox("State", state_df["STATE"].dropna().tolist())
+        search_text = st.sidebar.text_input("Search")
 
-            policy_df = session.sql("""
-                SELECT DISTINCT POLICY_NAME
-                FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
-                WHERE LOB = :1 AND STATE = :2
-                ORDER BY POLICY_NAME
-            """, [selected_lob, selected_state]).to_pandas()
+        if st.sidebar.button("Search"):
 
-            selected_policy = st.selectbox("Policy", policy_df["POLICY_NAME"].dropna().tolist())
+            with st.spinner("Searching..."):
 
-            version_df = session.sql("""
-                SELECT DISTINCT VERSION
-                FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
-                WHERE POLICY_NAME = :1
-                ORDER BY VERSION
-            """, [selected_policy]).to_pandas()
-
-            selected_version = st.selectbox("Version", version_df["VERSION"].tolist())
-
-            search_text = st.text_input("Search Clause")
-
-            if st.button("🔍 Search"):
-
-                result_df = session.sql("""
-                    CALL AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.SEARCH_POLICY_CLAUSE(
+                result = session.sql(f"""
+                    CALL {DB}.{SCHEMA}.SEARCH_POLICY_CLAUSE(
                         :1, :2, :3, :4
                     )
-                """, [search_text, selected_state, selected_lob, selected_version]).to_pandas()
+                """, [search_text, state, lob, version]).to_pandas()
 
-                if result_df.empty:
-                    st.warning("No matching clauses found.")
+                if result.empty:
+                    st.warning("No results found")
                 else:
-                    st.success(f"{len(result_df)} results found")
-                    st.dataframe(result_df, use_container_width=True)
+                    st.dataframe(result, use_container_width=True)
 
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
+    except Exception as e:
+        logging.error(e)
+        st.error("Search failed")
 
 # =================================================
-# ANALYZE POLICY CHANGES MODE
+# ANALYZE MODE
 # =================================================
 if app_mode == "Analyze Policy Changes":
 
-    st.title("📄 Policy Version Comparison")
-
-    with st.sidebar:
-        st.header("🧩 Comparison Filters")
-
-        try:
-            lob_df = session.sql("""
-                SELECT DISTINCT LOB
-                FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
-                ORDER BY LOB
-            """).to_pandas()
-
-            selected_lob = st.selectbox("LOB", lob_df["LOB"].dropna().tolist())
-
-            state_df = session.sql("""
-                SELECT DISTINCT STATE
-                FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
-                WHERE LOB = :1
-                ORDER BY STATE
-            """, [selected_lob]).to_pandas()
-
-            selected_state = st.selectbox("State", state_df["STATE"].dropna().tolist())
-
-            policy_df = session.sql("""
-                SELECT DISTINCT POLICY_NAME
-                FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
-                WHERE LOB = :1 AND STATE = :2
-                ORDER BY POLICY_NAME
-            """, [selected_lob, selected_state]).to_pandas()
-
-            selected_policy = st.selectbox("Select Policy", policy_df["POLICY_NAME"].dropna().tolist())
-
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
-            st.stop()
+    st.title("📊 Policy Version Comparison")
 
     try:
-        version_df = session.sql("""
-            SELECT VERSION, DOC_ID
-            FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.DOCUMENT_METADATA
-            WHERE POLICY_NAME = :1 AND LOB = :2 AND STATE = :3
-            ORDER BY VERSION
-        """, [selected_policy, selected_lob, selected_state]).to_pandas()
+        lob = st.sidebar.selectbox("LOB", get_lobs()["LOB"].dropna())
+
+        state = st.sidebar.selectbox(
+            "State", get_states(lob)["STATE"].dropna()
+        )
+
+        policy = st.sidebar.selectbox(
+            "Policy", get_policies(lob, state)["POLICY_NAME"].dropna()
+        )
+
+        version_df = get_versions(lob, state, policy)
 
         if len(version_df) < 2:
-            st.warning("At least two versions required for comparison.")
+            st.warning("Need at least 2 versions")
             st.stop()
 
         version_df = version_df.sort_values("VERSION")
 
-        latest_row = version_df.iloc[-1]
-        previous_row = version_df.iloc[-2]
+        latest = version_df.iloc[-1]
+        previous = version_df.iloc[-2]
 
-        latest_version = latest_row["VERSION"]
-        previous_version = previous_row["VERSION"]
+        new_doc_id = int(latest["DOC_ID"])
+        old_doc_id = int(previous["DOC_ID"])
 
-        old_doc_id = int(previous_row["DOC_ID"])
-        new_doc_id = int(latest_row["DOC_ID"])
+        st.sidebar.info(f"Latest: {latest['VERSION']}")
+        st.sidebar.info(f"Previous: {previous['VERSION']}")
 
-        st.sidebar.markdown("### 🔎 Auto Comparison")
-        st.sidebar.write(f"Latest Version: {latest_version}")
-        st.sidebar.write(f"Previous Version: {previous_version}")
-       
+        if st.sidebar.button("Analyze"):
 
-        if st.sidebar.button("Analyze Policy Impact"):
+            logging.info(f"Comparing {old_doc_id} vs {new_doc_id}")
 
-            st.markdown(f"### 📌 Policy: {selected_policy}")
-            st.markdown(f"**Latest Version:** {latest_version} (DOC_ID: {new_doc_id})")
-            st.markdown(f"**Previous Version:** {previous_version} (DOC_ID: {old_doc_id})")
-            
+            with st.spinner("Analyzing policy changes..."):
 
-            session.sql("""
-                CALL AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.COMPARE_POLICY_VERSIONS(:1, :2)
-            """, [old_doc_id, new_doc_id]).collect()
+                # Avoid re-run if already exists
+                count = session.sql(f"""
+                    SELECT COUNT(*) 
+                    FROM {DB}.{SCHEMA}.POLICY_VERSION_DIFFS
+                    WHERE OLD_DOC_ID = :1 AND NEW_DOC_ID = :2
+                """, [old_doc_id, new_doc_id]).collect()[0][0]
 
-            diff_df = session.sql("""
-                SELECT OLD_CLAUSE AS "Previous Version",
-                       NEW_CLAUSE AS "Latest Version"
-                FROM AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.POLICY_VERSION_DIFFS
-                WHERE OLD_DOC_ID = :1 AND NEW_DOC_ID = :2
-            """, [old_doc_id, new_doc_id]).to_pandas()
+                if count == 0:
+                    session.sql(f"""
+                        CALL {DB}.{SCHEMA}.COMPARE_POLICY_VERSIONS(:1, :2)
+                    """, [old_doc_id, new_doc_id]).collect()
 
-            st.markdown("### 📊 Version Comparison")
+                diff_df = session.sql(f"""
+                    SELECT OLD_CLAUSE, NEW_CLAUSE
+                    FROM {DB}.{SCHEMA}.POLICY_VERSION_DIFFS
+                    WHERE OLD_DOC_ID = :1 AND NEW_DOC_ID = :2
+                """, [old_doc_id, new_doc_id]).to_pandas()
 
-            if diff_df.empty:
-                st.info("No differences found between selected versions.")
-            else:
-                styled_df = style_diff(diff_df)
+                st.subheader("📊 Version Comparison")
 
-                # ✅ ONLY CHANGE: Remove scroll panel
-                html_table = styled_df.to_html()
-                st.markdown(html_table, unsafe_allow_html=True)
+                if diff_df.empty:
+                    st.info("No differences found")
+                else:
+                    st.dataframe(diff_df, use_container_width=True)
 
-            summary_result = session.sql("""
-                CALL AI_POC_DB.HEALTH_POLICY_POC_CHANGE_SUMMARY.GENERATE_CHANGE_SUMMARY(:1, :2)
-            """, [old_doc_id, new_doc_id]).collect()
+                # Summary
+                summary = session.sql(f"""
+                    CALL {DB}.{SCHEMA}.GENERATE_CHANGE_SUMMARY(:1, :2)
+                """, [old_doc_id, new_doc_id]).collect()[0][0]
 
-            summary_json = summary_result[0][0]
+                if isinstance(summary, str):
+                    summary = json.loads(summary)
 
-            if isinstance(summary_json, str):
-                summary_json = json.loads(summary_json)
+                st.subheader("📌 Summary")
+                st.info(summary.get("summary", "No summary"))
 
-            st.markdown("### 📌 Summary")
-            st.info(summary_json.get("summary", "No summary generated."))
+                st.subheader("⚠ Risk Highlights")
 
-            st.markdown("### ⚠ Risk Highlights")
-
-            risks = summary_json.get("risk_highlights", [])
-            if risks:
-                for risk in risks:
-                    st.markdown(f"- {risk}")
-            else:
-                st.write("No risks identified.")
+                risks = summary.get("risk_highlights", [])
+                if risks:
+                    for r in risks:
+                        st.markdown(f"- {r}")
+                else:
+                    st.write("No risks identified")
 
     except Exception as e:
-        st.error(f"Error: {str(e)}")
+        logging.error(e)
+        st.error("Analysis failed")
 
 # -------------------------------------------------
-# Footer
+# FOOTER
 # -------------------------------------------------
 st.divider()
-st.caption("Powered by Snowflake Cortex • Streamlit in Snowflake")
+st.caption("Production-ready • Snowflake Cortex AI")
