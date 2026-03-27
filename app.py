@@ -71,7 +71,7 @@ def get_version_data(policy, lob, state):
     """, [policy, lob, state]).to_pandas()
 
 # -------------------------------------------------
-# DIFF STYLING FUNCTION (UNCHANGED)
+# DIFF STYLING FUNCTION 
 # -------------------------------------------------
 def style_diff(df):
 
@@ -99,7 +99,7 @@ def style_diff(df):
     return df.style.apply(highlight_row, axis=1)
 
 # -------------------------------------------------
-# Fetch App Role (UNCHANGED)
+# Fetch App Role 
 # -------------------------------------------------
 def get_app_role(user_name):
     df = session.sql("""
@@ -114,7 +114,7 @@ def get_app_role(user_name):
     return df.iloc[0]["APP_ROLE"] if not df.empty else None
 
 # -------------------------------------------------
-# LOGIN (UNCHANGED)
+# LOGIN 
 # -------------------------------------------------
 if not st.session_state["authenticated"]:
 
